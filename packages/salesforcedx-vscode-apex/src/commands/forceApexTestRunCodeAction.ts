@@ -11,7 +11,7 @@ import {
   ResultFormat,
   TestLevel,
   TestResult,
-  TestService
+  TestService,
 } from '@salesforce/apex-node';
 import { SfdxProject } from '@salesforce/core';
 import { getRootWorkspacePath } from '@salesforce/salesforcedx-utils-vscode/out/src';
@@ -19,14 +19,14 @@ import {
   EmptyParametersGatherer,
   LibraryCommandletExecutor,
   SfdxCommandlet,
-  SfdxWorkspaceChecker
+  SfdxWorkspaceChecker,
 } from '@salesforce/salesforcedx-utils-vscode/out/src';
 import { notificationService } from '@salesforce/salesforcedx-utils-vscode/out/src/commands';
 import { getTestResultsFolder } from '@salesforce/salesforcedx-utils-vscode/out/src/helpers';
 import { ContinueResponse } from '@salesforce/salesforcedx-utils-vscode/out/src/types';
 import {
   ComponentSet,
-  SourceComponent
+  SourceComponent,
 } from '@salesforce/source-deploy-retrieve';
 import * as vscode from 'vscode';
 import { channelService, OUTPUT_CHANNEL } from '../channels';
@@ -41,9 +41,12 @@ export class ApexLibraryTestRunExecutor extends LibraryCommandletExecutor<{}> {
   private codeCoverage: boolean = false;
   private outputDir: string;
 
-  public static diagnostics = vscode.languages.createDiagnosticCollection(
-    'apex-errors'
+  private sfdxApex = vscode.extensions.getExtension(
+    'salesforce.salesforcedx-vscode-apex'
   );
+
+  public static diagnostics =
+    vscode.languages.createDiagnosticCollection('apex-errors');
 
   constructor(
     tests: string[],
@@ -76,15 +79,20 @@ export class ApexLibraryTestRunExecutor extends LibraryCommandletExecutor<{}> {
     );
 
     const progressReporter: Progress<ApexTestProgressValue> = {
-      report: value => {
+      report: (value) => {
         if (
           value.type === 'StreamingClientProgress' ||
           value.type === 'FormatTestResultProgress'
         ) {
           progress?.report({ message: value.message });
         }
-      }
+      },
     };
+
+    if (this.sfdxApex && this.sfdxApex.exports) {
+      await this.sfdxApex.exports.focusOnTestItem(this.tests[0]);
+    }
+
     const result = (await testService.runTestAsynchronous(
       payload,
       this.codeCoverage,
@@ -115,14 +123,14 @@ export class ApexLibraryTestRunExecutor extends LibraryCommandletExecutor<{}> {
     const project = await SfdxProject.resolve(projectPath);
     const defaultPackage = project.getDefaultPackage().fullPath;
 
-    result.tests.forEach(test => {
+    result.tests.forEach((test) => {
       if (test.diagnostic) {
         const diagnostic = test.diagnostic;
         const components = ComponentSet.fromSource(defaultPackage);
         const testClassCmp = components
           .getSourceComponents({
             fullName: test.apexClass.name,
-            type: 'ApexClass'
+            type: 'ApexClass',
           })
           .first() as SourceComponent;
         const componentPath = testClassCmp.content;
@@ -134,7 +142,7 @@ export class ApexLibraryTestRunExecutor extends LibraryCommandletExecutor<{}> {
           range: this.getZeroBasedRange(
             diagnostic.lineNumber ?? 1,
             diagnostic.columnNumber ?? 1
-          )
+          ),
         };
 
         if (componentPath) {
@@ -191,7 +199,7 @@ export async function forceApexDebugClassRunCodeActionDelegate(
   testClass: string
 ) {
   vscode.commands.executeCommand('sfdx.force.test.view.debugTests', {
-    name: testClass
+    name: testClass,
   });
 }
 
@@ -238,7 +246,7 @@ export async function forceApexDebugMethodRunCodeActionDelegate(
   testMethod: string
 ) {
   vscode.commands.executeCommand('sfdx.force.test.view.debugSingleTest', {
-    name: testMethod
+    name: testMethod,
   });
 }
 

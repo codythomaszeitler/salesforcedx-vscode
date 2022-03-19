@@ -17,12 +17,12 @@ import {
   LIGHT_BLUE_BUTTON,
   LIGHT_GREEN_BUTTON,
   LIGHT_ORANGE_BUTTON,
-  LIGHT_RED_BUTTON
+  LIGHT_RED_BUTTON,
 } from '../constants';
 import {
   getApexTests,
   LanguageClientStatus,
-  languageClientUtils
+  languageClientUtils,
 } from '../languageClientUtils';
 import { nls } from '../messages';
 import { ApexTestMethod } from './lspConverter';
@@ -35,10 +35,10 @@ const NO_TESTS_DESCRIPTION = nls.localize(
 );
 
 export class ApexTestOutlineProvider
-  implements vscode.TreeDataProvider<TestNode> {
-  private onDidChangeTestData: vscode.EventEmitter<
-    TestNode | undefined
-  > = new vscode.EventEmitter<TestNode | undefined>();
+  implements vscode.TreeDataProvider<TestNode>
+{
+  private onDidChangeTestData: vscode.EventEmitter<TestNode | undefined> =
+    new vscode.EventEmitter<TestNode | undefined>();
   public onDidChangeTreeData = this.onDidChangeTestData.event;
 
   private apexTestMap: Map<string, TestNode> = new Map<string, TestNode>();
@@ -60,6 +60,31 @@ export class ApexTestOutlineProvider
     }
   }
 
+  public getParent(node: TestNode): vscode.ProviderResult<TestNode> {
+    return node.parent;
+  }
+
+  public getTestNode(testName: string): TestNode | null {
+    const splits = testName.split('.');
+    const testClassToRun = splits[0];
+    const testMethodToRun = splits[1];
+
+    const testClasses = this.getChildren(this.getHead());
+
+    let found = null;
+    for (const testClass of testClasses) {
+      if (testClass.name === testClassToRun) {
+        for (const testMethod of this.getChildren(testClass)) {
+          if (testMethod.label === testMethodToRun) {
+            found = testMethod;
+            break;
+          }
+        }
+      }
+    }
+    return found;
+  }
+
   public getChildren(element: TestNode): TestNode[] {
     if (element) {
       return element.children;
@@ -69,7 +94,8 @@ export class ApexTestOutlineProvider
       } else {
         let message = NO_TESTS_MESSAGE;
         let description = NO_TESTS_DESCRIPTION;
-        const languageClientStatus = languageClientUtils.getStatus() as LanguageClientStatus;
+        const languageClientStatus =
+          languageClientUtils.getStatus() as LanguageClientStatus;
         if (!languageClientStatus.isReady()) {
           if (languageClientStatus.failedToInitialize()) {
             vscode.window.showInformationMessage(
@@ -129,11 +155,8 @@ export class ApexTestOutlineProvider
     const testRunIdFile = path.join(apexTestPath, 'test-run-id.txt');
     const testRunId = readFileSync(testRunIdFile);
     let testResultFilePath;
-    if ( testRunId.toString() === '' ) {
-      testResultFilePath = path.join(
-        apexTestPath,
-        `test-result.json`
-      );
+    if (testRunId.toString() === '') {
+      testResultFilePath = path.join(apexTestPath, `test-result.json`);
     } else {
       testResultFilePath = path.join(
         apexTestPath,
@@ -153,7 +176,7 @@ export class ApexTestOutlineProvider
     }
     this.rootNode.children = new Array<TestNode>();
     if (this.apexTestInfo) {
-      this.apexTestInfo.forEach(test => {
+      this.apexTestInfo.forEach((test) => {
         let apexGroup = this.apexTestMap.get(
           test.definingType
         ) as ApexTestGroupNode;
@@ -167,12 +190,14 @@ export class ApexTestOutlineProvider
         }
         const apexTest = new ApexTestNode(test.methodName, test.location);
         apexTest.name = apexGroup.label + '.' + apexTest.label;
+        apexTest.parent = apexGroup;
         this.apexTestMap.set(apexTest.name, apexTest);
         apexGroup.children.push(apexTest);
         if (
           this.rootNode &&
           !(this.rootNode.children.indexOf(apexGroup) >= 0)
         ) {
+          apexGroup.parent = this.rootNode;
           this.rootNode.children.push(apexGroup);
         }
         this.testStrings.add(apexGroup.name);
@@ -221,7 +246,7 @@ export class ApexTestOutlineProvider
         }
       }
     }
-    groups.forEach(group => {
+    groups.forEach((group) => {
       group.updatePassFailLabel();
     });
   }
@@ -229,6 +254,7 @@ export class ApexTestOutlineProvider
 
 export abstract class TestNode extends vscode.TreeItem {
   public children = new Array<TestNode>();
+  public parent: TestNode | null;
   public description: string;
   public name: string;
   public location: vscode.Location | null;
@@ -242,16 +268,17 @@ export abstract class TestNode extends vscode.TreeItem {
     this.location = location;
     this.description = label;
     this.name = label;
+    this.parent = null;
     this.command = {
       command: 'sfdx.force.test.view.showError',
       title: nls.localize('force_test_view_show_error_title'),
-      arguments: [this]
+      arguments: [this],
     };
   }
 
   public iconPath = {
     light: LIGHT_BLUE_BUTTON,
-    dark: DARK_BLUE_BUTTON
+    dark: DARK_BLUE_BUTTON,
   };
 
   get tooltip(): string {
@@ -263,19 +290,19 @@ export abstract class TestNode extends vscode.TreeItem {
       // Passed Test
       this.iconPath = {
         light: LIGHT_GREEN_BUTTON,
-        dark: DARK_GREEN_BUTTON
+        dark: DARK_GREEN_BUTTON,
       };
     } else if (outcome === 'Fail') {
       // Failed test
       this.iconPath = {
         light: LIGHT_RED_BUTTON,
-        dark: DARK_RED_BUTTON
+        dark: DARK_RED_BUTTON,
       };
     } else if (outcome === 'Skip') {
       // Skipped test
       this.iconPath = {
         light: LIGHT_ORANGE_BUTTON,
-        dark: DARK_ORANGE_BUTTON
+        dark: DARK_ORANGE_BUTTON,
       };
     }
 
@@ -301,7 +328,7 @@ export class ApexTestGroupNode extends TestNode {
     this.passing = 0;
     this.failing = 0;
     this.skipping = 0;
-    this.children.forEach(child => {
+    this.children.forEach((child) => {
       if ((child as ApexTestNode).outcome === 'Pass') {
         this.passing++;
       } else if ((child as ApexTestNode).outcome === 'Fail') {
@@ -323,7 +350,7 @@ export class ApexTestGroupNode extends TestNode {
   public updateOutcome(outcome: string) {
     super.updateOutcome(outcome);
     if (outcome === 'Pass') {
-      this.children.forEach(child => {
+      this.children.forEach((child) => {
         // Update all the children as well
         child.updateOutcome(outcome);
       });

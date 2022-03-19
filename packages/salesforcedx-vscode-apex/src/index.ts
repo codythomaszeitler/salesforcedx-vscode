@@ -22,7 +22,7 @@ import {
   forceApexTestRun,
   forceApexTestSuiteAdd,
   forceApexTestSuiteCreate,
-  forceApexTestSuiteRun
+  forceApexTestSuiteRun,
 } from './commands';
 import { APEX_EXTENSION_NAME, LSP_ERR } from './constants';
 import { workspaceContext } from './context';
@@ -32,12 +32,12 @@ import {
   getApexTests,
   getExceptionBreakpointInfo,
   getLineBreakpointInfo,
-  languageClientUtils
+  languageClientUtils,
 } from './languageClientUtils';
 import * as languageServer from './languageServer';
 import { nls } from './messages';
 import { telemetryService } from './telemetry';
-import { ApexTestOutlineProvider } from './views/testOutlineProvider';
+import { ApexTestOutlineProvider, TestNode } from './views/testOutlineProvider';
 import { ApexTestRunner, TestRunType } from './views/testRunner';
 
 let languageClient: LanguageClient | undefined;
@@ -52,13 +52,12 @@ export async function activate(context: vscode.ExtensionContext) {
     );
 
     const testResultOutput = path.join(apexDirPath, '*.json');
-    const testResultFileWatcher = vscode.workspace.createFileSystemWatcher(
-      testResultOutput
-    );
-    testResultFileWatcher.onDidCreate(uri =>
+    const testResultFileWatcher =
+      vscode.workspace.createFileSystemWatcher(testResultOutput);
+    testResultFileWatcher.onDidCreate((uri) =>
       testOutlineProvider.onResultFileCreate(apexDirPath, uri.fsPath)
     );
-    testResultFileWatcher.onDidChange(uri =>
+    testResultFileWatcher.onDidChange((uri) =>
       testOutlineProvider.onResultFileCreate(apexDirPath, uri.fsPath)
     );
 
@@ -101,10 +100,10 @@ export async function activate(context: vscode.ExtensionContext) {
         languageClientUtils.setStatus(ClientStatus.Ready, '');
         const startTime = telemetryService.getEndHRTime(langClientHRStart);
         telemetryService.sendEventData('apexLSPStartup', undefined, {
-          activationTime: startTime
+          activationTime: startTime,
         });
       })
-      .catch(err => {
+      .catch((err) => {
         // Handled by clients
         telemetryService.sendException(LSP_ERR, err.message);
         languageClientUtils.setStatus(
@@ -124,13 +123,28 @@ export async function activate(context: vscode.ExtensionContext) {
   const commands = registerCommands(context);
   context.subscriptions.push(commands);
 
-  context.subscriptions.push(await registerTestView(testOutlineProvider));
+  const registeredItems = await registerTestView(testOutlineProvider);
+  context.subscriptions.push(registeredItems.viewItems);
+
+  const focusOnTestItem = async (testName: string) => {
+    const foundTestNode = testOutlineProvider.getTestNode(testName);
+
+    const treeView = registeredItems.treeView;
+    if (foundTestNode) {
+      await treeView.reveal(foundTestNode, {
+        focus: true,
+        select: true,
+        expand: true,
+      });
+    }
+  };
 
   const exportedApi = {
     getLineBreakpointInfo,
     getExceptionBreakpointInfo,
     getApexTests,
-    languageClientUtils
+    languageClientUtils,
+    focusOnTestItem,
   };
 
   telemetryService.sendExtensionActivationEvent(extensionHRStart);
@@ -231,19 +245,34 @@ function registerCommands(
   );
 }
 
+class TestViewResult {
+  public treeView: vscode.TreeView<TestNode>;
+  public viewItems: vscode.Disposable;
+
+  public constructor(
+    treeView: vscode.TreeView<TestNode>,
+    viewItems: vscode.Disposable
+  ) {
+    this.treeView = treeView;
+    this.viewItems = viewItems;
+  }
+}
+
 async function registerTestView(
   testOutlineProvider: ApexTestOutlineProvider
-): Promise<vscode.Disposable> {
+): Promise<TestViewResult> {
   // Create TestRunner
   const testRunner = new ApexTestRunner(testOutlineProvider);
 
   // Test View
   const testViewItems = new Array<vscode.Disposable>();
 
-  const testProvider = vscode.window.registerTreeDataProvider(
-    'sfdx.force.test.view',
-    testOutlineProvider
-  );
+  const testProvider = vscode.window.createTreeView('sfdx.force.test.view', {
+    treeDataProvider: testOutlineProvider,
+  });
+
+  testProvider.reveal(testOutlineProvider.getHead());
+
   testViewItems.push(testProvider);
 
   // Run Test Button on Test View command
@@ -254,7 +283,7 @@ async function registerTestView(
   );
   // Show Error Message command
   testViewItems.push(
-    vscode.commands.registerCommand('sfdx.force.test.view.showError', test =>
+    vscode.commands.registerCommand('sfdx.force.test.view.showError', (test) =>
       testRunner.showErrorMessage(test)
     )
   );
@@ -262,21 +291,30 @@ async function registerTestView(
   testViewItems.push(
     vscode.commands.registerCommand(
       'sfdx.force.test.view.goToDefinition',
-      test => testRunner.showErrorMessage(test)
+      (test) => testRunner.showErrorMessage(test)
     )
   );
   // Run Class Tests command
   testViewItems.push(
     vscode.commands.registerCommand(
       'sfdx.force.test.view.runClassTests',
-      test => testRunner.runApexTests([test.name], TestRunType.Class)
+      (test) => testRunner.runApexTests([test.name], TestRunType.Class)
     )
   );
   // Run Single Test command
+  // Is this the thing that is being ran when we press the button?
+  // I mean if we put a console log in here we can tell that very easily.
   testViewItems.push(
     vscode.commands.registerCommand(
       'sfdx.force.test.view.runSingleTest',
-      test => testRunner.runApexTests([test.name], TestRunType.Method)
+      (test) => {
+        console.log('We are in the sfdx.force.test.view.runSingleTest method');
+        console.log(test);
+        // Becuase the information right here is what is necessary to know if you really wanted to focus on the explorer.
+
+        // But if we can figure out there is only one test per
+        testRunner.runApexTests([test.name], TestRunType.Method);
+      }
     )
   );
   // Refresh Test View command
@@ -288,7 +326,10 @@ async function registerTestView(
     })
   );
 
-  return vscode.Disposable.from(...testViewItems);
+  return {
+    treeView: testProvider,
+    viewItems: vscode.Disposable.from(...testViewItems),
+  };
 }
 
 export async function deactivate() {
