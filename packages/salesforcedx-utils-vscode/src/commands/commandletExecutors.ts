@@ -124,7 +124,7 @@ export abstract class LibraryCommandletExecutor<T>
   private readonly executionName: string;
   private readonly logName: string;
   private readonly outputChannel: vscode.OutputChannel;
-  protected showChannelOutput = true;
+  protected showChannelOutput = false;
   protected readonly telemetry = new TelemetryBuilder();
 
   /**
